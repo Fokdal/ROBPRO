@@ -1,0 +1,164 @@
+#include <Wire.h>
+#include <Zumo32U4.h>
+
+Zumo32U4Motors motors;
+Zumo32U4IMU imu;
+Zumo32U4ProximitySensors proxSensors;
+Zumo32U4LCD lcd;
+Zumo32U4ButtonA buttonA;
+
+// State machine and navigation variables
+enum State {
+  WAITING,
+  MOVING_FIRST_CIRCLE,
+  MOVING_SECOND_CIRCLE,
+  COMPLETE
+};
+
+State currentState = WAITING;
+int halfLapCount = 0;
+unsigned long lastDetectionTime = 0;
+const unsigned long DETECTION_COOLDOWN = 1000; // 1 second cooldown between detections
+
+// Gyroscope and navigation parameters
+float initialHeading = 0;
+float currentHeading = 0;
+const float CIRCLE_THRESHOLD = 340; // Degrees of rotation to complete a half-lap
+
+void setup() {
+  // Initialize components
+  Wire.begin();
+  
+  // Initialize IMU
+  if (!imu.init()) {
+    lcd.clear();
+    lcd.print("IMU Failed");
+    while(1);
+  }
+  imu.enableDefault();
+  
+  // Initialize proximity sensors
+  proxSensors.initFrontSensor();
+  
+  // LCD setup
+  lcd.clear();
+  lcd.print("Figure 8 Ready");
+  
+  // Wait for button press to start
+  buttonA.waitForButton();
+  lcd.clear();
+  
+  // Reset and calibrate initial heading
+  resetHeading();
+}
+
+void resetHeading() {
+  // Take multiple readings to get a stable initial heading
+  float total = 0;
+  for (int i = 0; i < 10; i++) {
+    imu.read();
+    total += imu.g.z;
+    delay(10);
+  }
+  initialHeading = total / 10.0;
+  currentHeading = 0;
+}
+
+void updateHeading() {
+  imu.read();
+  
+  // Calculate heading change
+  float gyroZ = imu.g.z;
+  float headingChange = (gyroZ - initialHeading) / 1000.0; // Adjust scaling as needed
+  
+  currentHeading += headingChange;
+}
+
+bool isObjectDetected() {
+  proxSensors.read();
+  return proxSensors.countsFrontWithLeftLeds() > 3 || 
+         proxSensors.countsFrontWithRightLeds() > 3;
+}
+
+void updateLapCount() {
+  // Check if we've rotated enough to count a half lap
+  if (abs(currentHeading) >= CIRCLE_THRESHOLD) {
+    halfLapCount++;
+    
+    // Update LCD
+    lcd.clear();
+    lcd.print("Half Laps: ");
+    lcd.print(halfLapCount);
+    
+    // Reset heading for next circle
+    currentHeading = 0;
+  }
+}
+
+void loop() {
+  switch (currentState) {
+    case WAITING:
+      // Wait for button press or initial conditions
+      if (buttonA.isPressed()) {
+        currentState = MOVING_FIRST_CIRCLE;
+        delay(500); // Debounce
+      }
+      break;
+    
+    case MOVING_FIRST_CIRCLE:
+      // Drive in first circle
+      motors.setSpeeds(250, 150); // Differential speeds for turning
+      
+      // Update heading
+      updateHeading();
+      
+      // Check lap completion and object detection
+      updateLapCount();
+      
+      // Switch to second circle after completing first half-lap
+      if (halfLapCount == 1) {
+        currentState = MOVING_SECOND_CIRCLE;
+      }
+      break;
+    
+    case MOVING_SECOND_CIRCLE:
+      // Drive in second circle (opposite direction)
+      motors.setSpeeds(150, 250); // Reverse differential speeds
+      
+      // Update heading
+      updateHeading();
+      
+      // Check lap completion
+      updateLapCount();
+      
+      // Complete figure eight
+      if (halfLapCount == 2) {
+        currentState = COMPLETE;
+      }
+      break;
+    
+    case COMPLETE:
+      // Stop motors
+      motors.setSpeeds(0, 0);
+      
+      // Display final results
+      lcd.clear();
+      lcd.print("Complete!");
+      lcd.gotoXY(0, 1);
+      lcd.print("Half Laps: 2");
+      
+      // Wait for reset
+      while(1);
+      break;
+  }
+  
+  // Optional: Object avoidance or emergency stop
+  if (isObjectDetected()) {
+    motors.setSpeeds(0, 0);
+    lcd.clear();
+    lcd.print("Object Detected!");
+    delay(1000);
+  }
+  
+  delay(10); // Small delay to prevent overwhelming the system
+}
