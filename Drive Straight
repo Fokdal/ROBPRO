@@ -1,0 +1,49 @@
+#include <Wire.h>
+#include <Zumo32U4.h>
+
+Zumo32U4Motors motors;
+Zumo32U4IMU imu;
+
+void setup() {
+  // Initialize the IMU
+  Wire.begin();
+  if (!imu.init()) {
+    // Failed to detect or initialize IMU
+    while (1) {
+      // Halt if IMU initialization fails
+      motors.setSpeeds(0, 0);
+    }
+  }
+  
+  // Configure IMU
+  imu.enableDefault();
+  
+  // Short delay to ensure everything is ready
+  delay(1000);
+}
+
+void loop() {
+  // Set a constant base speed
+  int baseSpeed = 200;  // Adjust this value to change overall speed
+  
+  // Read gyroscope Z-axis to detect rotation
+  imu.read();
+  int16_t gyroZ = imu.g.z;
+  
+  // Correction factor (adjust based on your robot's specific characteristics)
+  int correction = gyroZ / 10;
+  
+  // Calculate motor speeds with correction
+  int leftSpeed = baseSpeed - correction;
+  int rightSpeed = baseSpeed + correction;
+  
+  // Constrain speeds to prevent overflow
+  leftSpeed = constrain(leftSpeed, -400, 400);
+  rightSpeed = constrain(rightSpeed, -400, 400);
+  
+  // Set motor speeds
+  motors.setSpeeds(leftSpeed, rightSpeed);
+  
+  // Small delay to prevent overcorrection
+  delay(50);
+}
