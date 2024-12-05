@@ -1,0 +1,135 @@
+#include <Wire.h>
+#include <Zumo32U4.h>
+
+Zumo32U4LineSensors lineSensors;
+Zumo32U4Motors motors;
+Zumo32U4LCD lcd;
+Zumo32U4ButtonA buttonA;
+
+// Sensor and calibration variables
+#define NUM_SENSORS 6
+unsigned int lineSensorValues[NUM_SENSORS];
+int blackTapeThreshold = 600; // Adjust based on calibration
+
+// State machine
+enum RobotState {
+  CALIBRATING,
+  WAITING,
+  MOVING,
+  STOPPED
+};
+RobotState currentState = CALIBRATING;
+
+void setup() {
+  // Initialize line sensors
+  lineSensors.initFiveSensors();
+  
+  // LCD setup
+  lcd.clear();
+  lcd.print("Black Tape Stop");
+  lcd.gotoXY(0, 1);
+  lcd.print("Press A to Cal");
+  
+  // Wait for button press to start calibration
+  buttonA.waitForButton();
+  
+  // Calibration routine
+  calibrateSensors();
+}
+
+void calibrateSensors() {
+  // Clear LCD
+  lcd.clear();
+  lcd.print("Calibrating...");
+  
+  // Turn motors for sensor calibration
+  for (uint16_t i = 0; i < 400; i++) {
+    // Rotate robot to sample different surfaces
+    if (i < 100 || (i >= 200 && i < 300)) {
+      motors.setSpeeds(150, -150);
+    } else {
+      motors.setSpeeds(-150, 150);
+    }
+    
+    // Calibrate line sensors
+    lineSensors.calibrate();
+  }
+  
+  // Stop motors after calibration
+  motors.setSpeeds(0, 0);
+  
+  // Update LCD
+  lcd.clear();
+  lcd.print("Calibrated!");
+  lcd.gotoXY(0, 1);
+  lcd.print("Press A to Go");
+  
+  // Wait for button press to start moving
+  buttonA.waitForButton();
+  
+  // Set state to waiting
+  currentState = WAITING;
+}
+
+bool detectBlackTape() {
+  // Read line sensors
+  lineSensors.read(lineSensorValues);
+  
+  // Check if any sensor detects black tape
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    if (lineSensorValues[i] > blackTapeThreshold) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+void loop() {
+  switch (currentState) {
+    case CALIBRATING:
+      // Calibration is done in setup()
+      break;
+    
+    case WAITING:
+      // Ready to move
+      lcd.clear();
+      lcd.print("Ready to Go");
+      
+      // Wait for button press to start moving
+      if (buttonA.isPressed()) {
+        currentState = MOVING;
+        lcd.clear();
+        lcd.print("Moving...");
+        delay(500); // Debounce
+      }
+      break;
+    
+    case MOVING:
+      // Drive forward at constant speed
+      motors.setSpeeds(200, 200);
+      
+      // Check for black tape
+      if (detectBlackTape()) {
+        currentState = STOPPED;
+      }
+      break;
+    
+    case STOPPED:
+      // Stop motors immediately
+      motors.setSpeeds(0, 0);
+      
+      // Display stop message
+      lcd.clear();
+      lcd.print("STOPPED");
+      lcd.gotoXY(0, 1);
+      lcd.print("Black Tape!");
+      
+      // Optional: Wait indefinitely or reset
+      while(1);
+      break;
+  }
+  
+  // Small delay to prevent system overload
+  delay(10);
+}
