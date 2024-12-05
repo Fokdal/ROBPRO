@@ -1,0 +1,89 @@
+#include <Wire.h>
+#include <Zumo32U4.h>
+
+Zumo32U4LineSensors lineSensors;
+Zumo32U4Motors motors;
+Zumo32U4ButtonA buttonA;
+
+// Calibration and sensor arrays
+#define NUM_SENSORS 6
+unsigned int lineSensorValues[NUM_SENSORS];
+int lastPosition = 0;
+
+// PID control variables
+float Kp = 0.5;   // Proportional gain
+float Kd = 0.3;   // Derivative gain
+int lastError = 0;
+
+void setup() {
+  // Initialize line sensors
+  lineSensors.initFiveSensors();
+  
+  // Calibration routine
+  calibrateSensors();
+  
+  // Wait for button press to start
+  buttonA.waitForButton();
+  delay(1000);
+}
+
+void calibrateSensors() {
+  // Turn on LED to indicate calibration mode
+  ledRed(1);
+  
+  // Perform sensor calibration
+  for (uint16_t i = 0; i < 400; i++) {
+    // Alternate robot turning left and right during calibration
+    if (i < 100 || (i >= 200 && i < 300)) {
+      motors.setSpeeds(150, -150);
+    } else {
+      motors.setSpeeds(-150, 150);
+    }
+    
+    // Read line sensors during calibration
+    lineSensors.calibrate();
+  }
+  
+  // Stop motors after calibration
+  motors.setSpeeds(0, 0);
+  
+  // Turn off LED
+  ledRed(0);
+}
+
+int readPosition() {
+  // Read the line sensors
+  unsigned int position = lineSensors.readLine(lineSensorValues);
+  return position;
+}
+
+void loop() {
+  // Read the line position
+  int position = readPosition();
+  
+  // Calculate error (deviation from center)
+  int error = position - 2500;  // 2500 is the center for 6 sensors
+  
+  // Calculate PID control values
+  int motorSpeedDifference = Kp * error + Kd * (error - lastError);
+  
+  // Store current error for next iteration
+  lastError = error;
+  
+  // Base motor speed
+  int baseSpeed = 200;
+  
+  // Calculate individual motor speeds
+  int leftSpeed = baseSpeed + motorSpeedDifference;
+  int rightSpeed = baseSpeed - motorSpeedDifference;
+  
+  // Constrain speeds to prevent overflow
+  leftSpeed = constrain(leftSpeed, -400, 400);
+  rightSpeed = constrain(rightSpeed, -400, 400);
+  
+  // Set motor speeds
+  motors.setSpeeds(leftSpeed, rightSpeed);
+  
+  // Small delay to prevent overcorrection
+  delay(10);
+}
