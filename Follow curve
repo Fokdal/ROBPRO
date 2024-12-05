@@ -1,0 +1,84 @@
+#include <Wire.h>
+#include <Zumo32U4.h>
+
+Zumo32U4Motors motors;
+Zumo32U4ProximitySensors proxSensors;
+Zumo32U4LCD lcd;
+Zumo32U4ButtonA buttonA;
+
+// Wall following parameters
+const int DESIRED_DISTANCE = 10;  // Desired distance from wall (in sensor units)
+const float Kp = 0.5;  // Proportional gain
+const float Kd = 0.2;  // Derivative gain
+
+// State tracking variables
+int lastError = 0;
+int baseSpeed = 200;
+
+void setup() {
+  // Initialize proximity sensors
+  proxSensors.initFrontSensor();
+  proxSensors.initSideSensors();
+  
+  // LCD setup
+  lcd.clear();
+  lcd.print("Wall Follow");
+  lcd.gotoXY(0, 1);
+  lcd.print("Press A to Start");
+  
+  // Wait for button press
+  buttonA.waitForButton();
+  delay(500);
+  
+  lcd.clear();
+  lcd.print("Following Wall");
+}
+
+int getSideDistance() {
+  // Read side proximity sensors
+  proxSensors.read();
+  
+  // Use right side sensors for wall following
+  return proxSensors.countsFrontWithRightLeds();
+}
+
+void loop() {
+  // Get current distance from wall
+  int currentDistance = getSideDistance();
+  
+  // Calculate error (difference from desired distance)
+  int error = currentDistance - DESIRED_DISTANCE;
+  
+  // Calculate PID correction
+  int correction = (Kp * error) + (Kd * (error - lastError));
+  
+  // Store current error for next iteration
+  lastError = error;
+  
+  // Calculate motor speeds
+  int leftSpeed = baseSpeed - correction;
+  int rightSpeed = baseSpeed + correction;
+  
+  // Constrain speeds to prevent overflow
+  leftSpeed = constrain(leftSpeed, -400, 400);
+  rightSpeed = constrain(rightSpeed, -400, 400);
+  
+  // Set motor speeds
+  motors.setSpeeds(leftSpeed, rightSpeed);
+  
+  // Update LCD with current distance
+  lcd.clear();
+  lcd.print("Dist: ");
+  lcd.print(currentDistance);
+  
+  // Small delay to prevent system overload
+  delay(50);
+  
+  // Optional: Emergency stop if too close or too far
+  if (currentDistance <= 3 || currentDistance >= 20) {
+    motors.setSpeeds(0, 0);
+    lcd.clear();
+    lcd.print("Wall Lost!");
+    while(1); // Halt
+  }
+}
